@@ -42,19 +42,25 @@ NOT_A_WORD = {
     "the", "a", "an", "is", "was", "coming", "up", "next", "soon", "after",
     "this", "that", "right", "here", "now", "going", "gonna", "about", "to",
     "be", "and", "so", "in", "on", "at", "for", "you", "your", "it", "of",
-    "today", "hour", "out", "still", "just", "again",
+    "today", "hour", "out", "still", "just", "again", "us", "me",
 }
 
+# The text always goes to 959959, so these only look for the word itself.
 PATTERNS = [
+    # "the keyword is sunshine", "code word of the hour: sunshine"
     re.compile(r"(?:code|key|secret|magic|keyword)\s*-?\s*word"
                r"(?:\s+(?:of the hour|this hour|for this hour|today))?"
                r"(?:\s+(?:is|was|it's|its|will be))?[\s:,.\"']+([a-z]+)"),
-    re.compile(r"\btext\s+(?:the\s+word\s+|in\s+)?([a-z]+)\s+(?:and your name\s+)?"
-               r"to\s+(?:959|nine\s*five\s*nine)"),
-    # "future, f-u-t-u-r-e, text it to 959959" (spelling already joined)
-    re.compile(r"\b([a-z]+)[\s,.]+text\s+(?:it|that)\s+(?:in\s+)?"
-               r"to\s+(?:959|nine\s*five\s*nine)"),
+    # "text the word sunshine", "text in sunshine"
+    re.compile(r"\btext\s+(?:in\s+)?the\s+word\s+([a-z]+)"),
+    re.compile(r"\btext\s+in\s+([a-z]+)"),
 ]
+
+# Letters read out one at a time: "f-u-t-u-r-e", "F.U.T. U.R.E.", "s u n n y"
+SPELLED = re.compile(r"\b(?:[a-z][-.\s]\s?){2,}[a-z]\b\.?")
+
+# Spelled-out things that aren't the keyword (call letters etc.)
+NOT_SPELLED = {"chfm", "fm"}
 
 
 def log(msg):
@@ -72,11 +78,18 @@ def notify(title, message):
 
 def find_code_word(text):
     text = text.lower()
-    # "95-9-9-5-9" / "95 9 95 9" -> "959959"
-    text = re.sub(r"(?<=\d)[\s-]+(?=\d)", "", text)
-    # Join spelled-out words like "s-u-n-n-y" or "s. u. n. n. y."
-    text = re.sub(r"\b(?:[a-z][-.\s]\s?){2,}[a-z]\b",
-                  lambda m: re.sub(r"[-.\s]", "", m.group()), text)
+    # A word spelled out letter by letter is the strongest sign: hosts spell
+    # the keyword so people can text it. Accept it when it's also said as a
+    # normal word ("future, f-u-t-u-r-e") or the host is talking about texting.
+    plain = SPELLED.sub(" ", text)
+    for match in SPELLED.finditer(text):
+        word = re.sub(r"[^a-z]", "", match.group())
+        if len(word) < 3 or word in NOT_SPELLED or word in NOT_A_WORD:
+            continue
+        if re.search(rf"\b{word}\b", plain) or "text" in text:
+            return word
+    # Otherwise listen for the phrasing, with any spelling joined back up.
+    text = SPELLED.sub(lambda m: re.sub(r"[^a-z]", "", m.group()) + " ", text)
     for pattern in PATTERNS:
         for match in pattern.finditer(text):
             word = match.group(1)
