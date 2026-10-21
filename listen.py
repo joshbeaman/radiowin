@@ -51,6 +51,9 @@ PATTERNS = [
                r"(?:\s+(?:is|was|it's|its|will be))?[\s:,.\"']+([a-z]+)"),
     re.compile(r"\btext\s+(?:the\s+word\s+|in\s+)?([a-z]+)\s+(?:and your name\s+)?"
                r"to\s+(?:959|nine\s*five\s*nine)"),
+    # "future, f-u-t-u-r-e, text it to 959959" (spelling already joined)
+    re.compile(r"\b([a-z]+)[\s,.]+text\s+(?:it|that)\s+(?:in\s+)?"
+               r"to\s+(?:959|nine\s*five\s*nine)"),
 ]
 
 
@@ -69,6 +72,8 @@ def notify(title, message):
 
 def find_code_word(text):
     text = text.lower()
+    # "95-9-9-5-9" / "95 9 95 9" -> "959959"
+    text = re.sub(r"(?<=\d)[\s-]+(?=\d)", "", text)
     # Join spelled-out words like "s-u-n-n-y" or "s. u. n. n. y."
     text = re.sub(r"\b(?:[a-z][-.\s]\s?){2,}[a-z]\b",
                   lambda m: re.sub(r"[-.\s]", "", m.group()), text)
@@ -99,13 +104,14 @@ def read_wav(path):
     return np.frombuffer(frames, np.int16).astype(np.float32) / 32768.0
 
 
-def listen(model, minutes, dry_run):
+def listen(model, minutes, dry_run, source=STREAM_URL):
     """Record the stream and transcribe as it goes. Returns the word or None."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
+        reconnect = (["-reconnect", "1", "-reconnect_streamed", "1"]
+                     if source.startswith("http") else [])
         ffmpeg = subprocess.Popen(
-            ["ffmpeg", "-loglevel", "error", "-reconnect", "1",
-             "-reconnect_streamed", "1", "-i", STREAM_URL,
+            ["ffmpeg", "-loglevel", "error", *reconnect, "-i", source,
              "-t", str(minutes * 60), "-ac", "1", "-ar", "16000",
              "-f", "segment", "-segment_time", str(SEGMENT_SECONDS),
              str(tmp / "seg%04d.wav")],
@@ -150,22 +156,24 @@ def listen(model, minutes, dry_run):
             caffeinate.terminate()
 
 
-def enter(word, dry_run):
+def enter(word, dry_run, to=radiowin.SHORT_CODE):
     first, last = radiowin.get_name()
     message = radiowin.build_message(word, first, last)
     entries = radiowin.load_json(radiowin.ENTRIES_FILE, [])
-    if any(e["message"] == message for e in entries):
+    testing = to != radiowin.SHORT_CODE
+    if not testing and any(e["message"] == message for e in entries):
         log(f"Already entered with {word!r}, skipping")
         return
     if dry_run:
         log(f"(dry run) would send: {message}")
         notify("radiowin (dry run)", f"Heard code word: {word.upper()}")
         return
-    sent = radiowin.send_sms(radiowin.SHORT_CODE, message)
-    entries.append({"time": f"{datetime.now():%Y-%m-%d %H:%M}",
-                    "message": message, "sent": sent})
-    radiowin.save_json(radiowin.ENTRIES_FILE, entries)
-    log(f"{'Sent' if sent else 'Opened draft'}: {message}")
+    sent = radiowin.send_sms(to, message)
+    if not testing:  # test sends shouldn't block the real entry later
+        entries.append({"time": f"{datetime.now():%Y-%m-%d %H:%M}",
+                        "message": message, "sent": sent})
+        radiowin.save_json(radiowin.ENTRIES_FILE, entries)
+    log(f"{'Sent' if sent else 'Opened draft'} to {to}: {message}")
     notify("radiowin", f"Entered with {word.upper()}"
            if sent else f"Press Send in Messages: {word.upper()}")
 
@@ -218,6 +226,8 @@ def main():
     parser.add_argument("--now", action="store_true", help="listen immediately, once")
     parser.add_argument("--dry-run", action="store_true", help="never send a text")
     parser.add_argument("--minutes", type=float, default=LISTEN_MINUTES)
+    parser.add_argument("--file", help="read a recording instead of the stream (implies --now)")
+    parser.add_argument("--to", default=radiowin.SHORT_CODE, help="number to text (for testing)")
     parser.add_argument("--install", action="store_true", help="run in the background")
     parser.add_argument("--uninstall", action="store_true", help="stop background running")
     args = parser.parse_args()
@@ -233,10 +243,10 @@ def main():
         return
     model = load_model()
 
-    if args.now:
-        word = listen(model, args.minutes, args.dry_run)
+    if args.now or args.file:
+        word = listen(model, args.minutes, args.dry_run, args.file or STREAM_URL)
         if word:
-            enter(word, args.dry_run)
+            enter(word, args.dry_run, args.to)
         else:
             log("No code word heard.")
         return
