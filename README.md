@@ -11,7 +11,7 @@ Messages app.
 ## How it works
 
 1. A background listener tunes in to the Star 95.9 stream one minute before
-   each contest hour and listens for 12 minutes.
+   each contest hour and listens for 22 minutes.
 2. It turns the audio into text on your Mac using
    [faster-whisper](https://github.com/SYSTRAN/faster-whisper). No accounts or
    API keys are needed.

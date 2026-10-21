@@ -29,8 +29,8 @@ STREAM_URL = (
 # Hours (24h clock) at which a listening session starts. Monday is 0.
 WEEKDAY_HOURS = range(8, 20)   # 8am through the 7pm hour
 WEEKEND_HOURS = range(12, 19)  # noon through the 6pm hour
-LISTEN_MINUTES = 12
-START_EARLY_SECONDS = 60       # tune in a minute before the hour
+LISTEN_MINUTES = 22
+START_EARLY_SECONDS = 5       # tune in a minute before the hour
 
 SEGMENT_SECONDS = 20
 MODEL_NAME = "small.en"
@@ -76,6 +76,14 @@ def notify(title, message):
     subprocess.run(["osascript", "-e", script, title, message], capture_output=True)
 
 
+def collapse_repeats(word):
+    """'backback' -> 'back' when the host spells the word twice in a row."""
+    for size in range(1, len(word) // 2 + 1):
+        if len(word) % size == 0 and word[:size] * (len(word) // size) == word:
+            return word[:size]
+    return word
+
+
 def find_code_word(text):
     text = text.lower()
     # A word spelled out letter by letter is the strongest sign: hosts spell
@@ -83,7 +91,7 @@ def find_code_word(text):
     # normal word ("future, f-u-t-u-r-e") or the host is talking about texting.
     plain = SPELLED.sub(" ", text)
     for match in SPELLED.finditer(text):
-        word = re.sub(r"[^a-z]", "", match.group())
+        word = collapse_repeats(re.sub(r"[^a-z]", "", match.group()))
         if len(word) < 3 or word in NOT_SPELLED or word in NOT_A_WORD:
             continue
         if re.search(rf"\b{word}\b", plain) or "text" in text:
@@ -200,7 +208,7 @@ def load_model():
 PLIST = Path.home() / "Library/LaunchAgents/com.radiowin.listen.plist"
 
 
-def install():
+def install(extra_args=()):
     """Run the listener in the background at login, restarting if it stops."""
     here = Path(__file__).resolve().parent
     PLIST.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +221,7 @@ def install():
     <array>
         <string>{sys.executable}</string>
         <string>{here / "listen.py"}</string>
-    </array>
+{"".join(f"        <string>{a}</string>{chr(10)}" for a in extra_args)}    </array>
     <key>WorkingDirectory</key><string>{here}</string>
     <key>EnvironmentVariables</key>
     <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string></dict>
@@ -252,7 +260,7 @@ def main():
         sys.exit("No name saved. Run: python3 radiowin.py --set-name")
     radiowin.get_name()  # make sure a name is saved before going unattended
     if args.install:
-        install()
+        install(["--to", args.to] if args.to != radiowin.SHORT_CODE else [])
         return
     model = load_model()
 
@@ -278,7 +286,7 @@ def main():
         try:
             word = listen(model, remaining.total_seconds() / 60, args.dry_run)
             if word:
-                enter(word, args.dry_run)
+                enter(word, args.dry_run, args.to)
             else:
                 log("No code word heard this hour.")
         except Exception as e:  # keep running next hour no matter what
