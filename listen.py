@@ -42,7 +42,7 @@ NOT_A_WORD = {
     "the", "a", "an", "is", "was", "coming", "up", "next", "soon", "after",
     "this", "that", "right", "here", "now", "going", "gonna", "about", "to",
     "be", "and", "so", "in", "on", "at", "for", "you", "your", "it", "of",
-    "today", "hour", "out", "still", "just", "again", "us", "me",
+    "today", "hour", "out", "still", "just", "again", "us", "me", "text", "texting", "texted", "coming",
 }
 
 # The text always goes to 959959, so these only look for the word itself.
@@ -50,7 +50,7 @@ PATTERNS = [
     # "the keyword is sunshine", "code word of the hour: sunshine"
     re.compile(r"(?:code|key|secret|magic|keyword)\s*-?\s*word"
                r"(?:\s+(?:of the hour|this hour|for this hour|today))?"
-               r"(?:\s+(?:is|was|it's|its|will be))?[\s:,.\"']+([a-z]+)"),
+               r"(?:\s+(?:is|was|it's|its|will be)|\s*:)[\s:,.\"']+([a-z]+)"),
     # "text the word sunshine", "text in sunshine"
     re.compile(r"\btext\s+(?:in\s+)?the\s+word\s+([a-z]+)"),
     re.compile(r"\btext\s+in\s+([a-z]+)"),
